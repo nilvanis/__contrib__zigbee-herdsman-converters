@@ -63,7 +63,6 @@ const {
     w600Binary,
     w600Numeric,
     w600EnumLookup,
-    w600AqaraTimeResponse,
     w600Thermostat,
     w600Schedule,
     w600ExternalTempSensor,
@@ -5410,7 +5409,7 @@ export const definitions: DefinitionWithExtend[] = [
         description: "Radiator thermostat W600",
         extend: [
             lumi.modernExtend.addManuSpecificLumiCluster(),
-            w600AqaraTimeResponse(),
+            m.customTimeResponse("2000_LOCAL"),
             w600Heartbeat(),
             w600Thermostat(),
             w600Schedule(),

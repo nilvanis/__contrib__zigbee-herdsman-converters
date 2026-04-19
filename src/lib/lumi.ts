@@ -3581,7 +3581,6 @@ export const lumiModernExtend = {
     w600Numeric: (args: Omit<modernExtend.NumericArgs<"manuSpecificLumi", ManuSpecificLumi>, "cluster">): ModernExtend => createW600Numeric(args),
     w600EnumLookup: (args: Omit<modernExtend.EnumLookupArgs<"manuSpecificLumi", ManuSpecificLumi>, "cluster">): ModernExtend =>
         createW600EnumLookup(args),
-    w600AqaraTimeResponse: (): ModernExtend => createW600AqaraTimeResponse(),
     w600Thermostat: (): ModernExtend => createW600Thermostat(),
     w600Schedule: (): ModernExtend => createW600Schedule(),
     w600ExternalTempSensor: (): ModernExtend => createW600ExternalTempSensor(),
@@ -3994,12 +3993,6 @@ function parseW600WindowSensorState(value: unknown, key: string): W600WindowSens
     }
 
     throw new Error(`${key} must be one of: open, closed`);
-}
-
-function getW600AqaraStyleZigbeeTime() {
-    const oneJanuary2000 = new Date("January 01, 2000 00:00:00 UTC+00:00").getTime();
-    const secondsUtc = Math.round((Date.now() - oneJanuary2000) / 1000);
-    return secondsUtc - new Date().getTimezoneOffset() * 60;
 }
 
 function decodeW600AqaraStyleZigbeeTime(seconds: unknown) {
@@ -5649,36 +5642,6 @@ async function armW600WindowDetectionMode(
             );
         }
     }
-}
-
-function createW600AqaraTimeResponse(): ModernExtend {
-    const onEvent: NonNullable<ModernExtend["onEvent"]> = [
-        (event) => {
-            if (event.type !== "start" || event.data.device.customReadResponse) {
-                return;
-            }
-
-            event.data.device.customReadResponse = (frame, endpoint) => {
-                if (!frame.isCluster("genTime")) {
-                    return false;
-                }
-
-                const time = getW600AqaraStyleZigbeeTime();
-                endpoint
-                    .readResponse("genTime", frame.header.transactionSequenceNumber, {
-                        time,
-                        timeZone: 0,
-                        dstShift: 0,
-                    })
-                    .catch((error) =>
-                        logger.warning(`W600 custom Aqara-style time response failed for '${event.data.device.ieeeAddr}': ${error}`, W600_NS),
-                    );
-                return true;
-            };
-        },
-    ];
-
-    return {onEvent, isModernExtend: true};
 }
 
 function createW600Thermostat(): ModernExtend {
