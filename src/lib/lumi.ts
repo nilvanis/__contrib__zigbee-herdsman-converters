@@ -6479,6 +6479,7 @@ function createW600WindowDetection(): ModernExtend {
         exposes: [
             e
                 .binary("window_detection", ea.ALL, "ON", "OFF")
+                .withLabel("Open window detection")
                 .withCategory("config")
                 .withDescription(
                     "Enable or disable window detection. When turned on, the thermostat arms the currently selected detection mode. If external mode is selected without a configured IEEE address, it falls back to temperature_difference.",
