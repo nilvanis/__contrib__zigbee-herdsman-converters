@@ -3786,7 +3786,6 @@ const W600_PRESET_ID_BY_NAME = {
 } as const;
 
 const W600_PRESET_ORDER = ["home", "away", "sleep", "vacation", "wind_down"] as const;
-const W600_PRESET_EXPOSE_ORDER = ["home", "away", "sleep", "vacation", "wind_down", "none"] as const;
 
 const W600_PRESET_TEMPERATURE_DEFINITIONS: readonly W600PresetTemperatureDefinition[] = [
     {preset: "home", property: "preset_home_temperature", label: "Home temperature", description: "Home preset temperature"},
@@ -5659,7 +5658,7 @@ function createW600Thermostat(): ModernExtend {
 
     const climateExpose = findClimateExpose(extend);
     climateExpose?.withSystemMode(["off", "heat", "auto"], ea.STATE_SET, "AUTO follows the weekly schedule, HEAT is manual override");
-    climateExpose?.withPreset([...W600_PRESET_EXPOSE_ORDER], "Selected preset scene");
+    climateExpose?.withPreset([...W600_PRESET_ORDER], "Selected preset scene");
     findClimateFeature(climateExpose, "local_temperature_calibration")?.withLabel("Temperature offset");
     const holdExpose = findW600Expose(extend, "temperature_setpoint_hold");
     holdExpose
