@@ -5969,7 +5969,6 @@ function createW600Schedule(): ModernExtend {
             .withDescription("Enable or disable using the stored weekly schedule")
             .withLabel("Weekly schedule")
             .withCategory("config"),
-        e.binary("helper", ea.ALL, "ON", "OFF").withDescription("Deprecated compatibility alias for schedule").withCategory("config"),
     ];
 
     const setSchedule = async (entity: Zh.Endpoint, key: string, value: unknown, meta: Tz.Meta) => {
