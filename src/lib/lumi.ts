@@ -3851,7 +3851,11 @@ function createW600ExternalTempSensor(): ModernExtend {
 
     return {
         exposes: [
-            e.temperature_sensor_select(["internal", "external"]).withAccess(ea.ALL),
+            e
+                .temperature_sensor_select(["internal", "external"])
+                .withAccess(ea.ALL)
+                .withLabel("Temperature sensor")
+                .withDescription("Choose whether the thermostat uses its internal sensor or data provided via 'External Sensor Temperature'"),
             e
                 .text("external_sensor_ieee", ea.ALL)
                 .withLabel("External temperature sensor IEEE address")
