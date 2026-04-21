@@ -5473,6 +5473,7 @@ export const definitions: DefinitionWithExtend[] = [
                 cluster: "manuSpecificLumi",
                 attribute: {ID: 0x0279, type: Zcl.DataType.UINT32},
                 description: "Anti-freeze temperature",
+                entityCategory: "config",
                 zigbeeCommandOptions: {manufacturerCode},
             }),
             w600PresetTemperatureTable(),
