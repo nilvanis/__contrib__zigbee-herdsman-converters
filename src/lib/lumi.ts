@@ -3686,7 +3686,7 @@ const W600_PRESET_TEMPERATURE_DEFINITIONS: readonly W600PresetTemperatureDefinit
     {preset: "away", property: "preset_away_temperature", label: "Away temperature", description: "Away preset temperature"},
     {preset: "sleep", property: "preset_sleep_temperature", label: "Sleep temperature", description: "Sleep preset temperature"},
     {preset: "vacation", property: "preset_vacation_temperature", label: "Vacation temperature", description: "Vacation preset temperature"},
-    {preset: "wind_down", property: "preset_wind_down_temperature", label: "Wind-down temperature", description: "Wind-down preset temperature"},
+    {preset: "wind_down", property: "preset_wind_down_temperature", label: "Wind down temperature", description: "Wind-down preset temperature"},
 ] as const;
 
 const W600_PRESET_NAME_BY_PROPERTY = Object.fromEntries(
