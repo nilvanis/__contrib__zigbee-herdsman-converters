@@ -4184,10 +4184,6 @@ function createW600Thermostat(): ModernExtend {
         localTemperatureCalibration: {values: {min: -5, max: 5, step: 0.1}},
         temperatureSetpointHold: true,
         temperatureSetpointHoldDuration: true,
-        setpointsLimit: {
-            maxHeatSetpointLimit: {min: 5, max: 30, step: 0.5},
-            minHeatSetpointLimit: {min: 5, max: 30, step: 0.5},
-        },
         systemMode: {values: ["off", "heat", "auto"], configure: {skip: true}},
     });
 
