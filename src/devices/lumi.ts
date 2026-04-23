@@ -5487,14 +5487,15 @@ export const definitions: DefinitionWithExtend[] = [
             }),
             m.numeric<"manuSpecificLumi", ManuSpecificLumi>({
                 name: "anti_freeze_temperature",
-                valueMin: 0,
-                valueMax: 30,
+                valueMin: 5,
+                valueMax: 15,
                 valueStep: 0.5,
                 scale: 100,
                 unit: "°C",
                 cluster: "manuSpecificLumi",
                 attribute: {ID: 0x0279, type: Zcl.DataType.UINT32},
-                description: "Anti-freeze temperature",
+                description:
+                    "Minimum temperature limit for frost protection. Turns the thermostat on regardless of setpoint if the temperature drops below this.",
                 entityCategory: "config",
                 zigbeeCommandOptions: {manufacturerCode},
             }),
