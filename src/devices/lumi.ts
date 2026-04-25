@@ -5569,6 +5569,10 @@ export const definitions: DefinitionWithExtend[] = [
                         "{{ value_json.local_temperature }}" +
                         "{% else %}None{% endif %}";
                 }
+
+                if (typeof payload.value_template === "string" && payload.value_template.includes("value_json.override_active")) {
+                    payload.icon = "mdi:cursor-pointer";
+                }
             },
         },
         extend: [
