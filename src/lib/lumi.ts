@@ -3850,6 +3850,10 @@ function parseW600TemperatureSetpointHold(value: unknown) {
     return undefined;
 }
 
+function getW600OverrideActiveState(state: KeyValue | undefined) {
+    return parseW600TemperatureSetpointHold(state?.override_active) ?? parseW600TemperatureSetpointHold(state?.temperature_setpoint_hold);
+}
+
 function parseW600HeatingEnabled(value: unknown) {
     if (value === "off") {
         return false;
@@ -3867,13 +3871,31 @@ function getRequestedW600ScheduleEnabled(meta: Tz.Meta) {
         return parseRequiredW600BinaryEnabled(meta.message.schedule, "schedule");
     }
 
+    const requestedSystemMode = normalizeW600EnumKey(meta.message?.system_mode);
+
+    if (requestedSystemMode === "auto") {
+        return true;
+    }
+
+    if (requestedSystemMode === "heat" || requestedSystemMode === "off") {
+        return false;
+    }
+
     const scheduleEnabled = parseW600ScheduleEnabled(meta.state?.schedule);
 
     if (scheduleEnabled != null) {
         return scheduleEnabled;
     }
 
-    return meta.state?.system_mode === "auto" ? true : undefined;
+    if (meta.state?.system_mode === "auto") {
+        return true;
+    }
+
+    if (meta.state?.system_mode === "heat" || meta.state?.system_mode === "off") {
+        return false;
+    }
+
+    return undefined;
 }
 
 async function safeW600Read(endpoint: Zh.Endpoint, cluster: string | number, attributes: Array<string | number>, options?: KeyValue) {
@@ -3945,16 +3967,16 @@ function buildW600ExternalTemperaturePayload(entity: Zh.Endpoint, centiDegrees: 
     return buildW600SensorPayload(entity, 0x05, Buffer.concat([W600_EXTERNAL_TEMP_SENSOR, W600_SENSOR_BINDING_MARKER, temperatureBuffer]));
 }
 
-function deriveW600SystemMode(args: {heatingEnabled: boolean | undefined; scheduleEnabled: boolean | undefined; hold: boolean | undefined}) {
+function deriveW600SystemMode(args: {heatingEnabled: boolean | undefined; scheduleEnabled: boolean | undefined}) {
     if (args.heatingEnabled === false) {
         return "off";
     }
 
-    if (args.heatingEnabled === true && args.scheduleEnabled === true && args.hold === false) {
+    if (args.heatingEnabled === true && args.scheduleEnabled === true) {
         return "auto";
     }
 
-    if (args.heatingEnabled === true) {
+    if (args.heatingEnabled === true && args.scheduleEnabled === false) {
         return "heat";
     }
 
@@ -4183,7 +4205,6 @@ function createW600Thermostat(): ModernExtend {
             values: {occupiedHeatingSetpoint: {min: 5, max: 30, step: 0.5}},
         },
         localTemperatureCalibration: {values: {min: -5, max: 5, step: 0.1}},
-        temperatureSetpointHold: true,
         temperatureSetpointHoldDuration: true,
         systemMode: {values: ["off", "heat", "auto"], configure: {skip: true}},
     });
@@ -4200,6 +4221,25 @@ function createW600Thermostat(): ModernExtend {
         .withUnit("min")
         .withCategory("config")
         .withDescription("Duration in minutes for the current manual override. 0 means until next schedule event, 65535 means indefinitely.");
+    extend.exposes?.push(
+        e.binary("override_active", ea.STATE, true, false).withLabel("Manual Override").withDescription("Temporary manual override active"),
+    );
+
+    const thermostatConverter = {
+        cluster: W600_THERMOSTAT_CLUSTER,
+        type: ["attributeReport", "readResponse"],
+        convert: (model, msg, publish, options, meta) => {
+            const result = fz.thermostat.convert(model, msg, publish, options, meta) as KeyValueAny | undefined;
+
+            if (result && msg.data.tempSetpointHold !== undefined) {
+                const holdProperty = postfixWithEndpointName("temperature_setpoint_hold", msg, model, meta);
+                result.override_active = msg.data.tempSetpointHold === 1;
+                delete result[holdProperty];
+            }
+
+            return result;
+        },
+    } satisfies Fz.Converter<"hvacThermostat", undefined, ["attributeReport", "readResponse"]>;
 
     const occupiedHeatingSetpointConverter = {
         key: ["occupied_heating_setpoint"],
@@ -4219,7 +4259,7 @@ function createW600Thermostat(): ModernExtend {
             return {
                 state: {
                     ...(resultState ?? {}),
-                    ...(shouldUseHold ? {temperature_setpoint_hold: true} : {}),
+                    ...(shouldUseHold ? {system_mode: "auto", schedule: "ON", override_active: true} : {}),
                     preset: "none",
                 },
             };
@@ -4239,7 +4279,9 @@ function createW600Thermostat(): ModernExtend {
             if (normalized === "off") {
                 clearW600ManualCustomPresetSuppression(entity);
                 await writeW600LumiAttribute(entity, W600_ATTR_SYSTEM_MODE, 0);
-                return {state: {system_mode: "off"}};
+                await writeW600LumiAttribute(entity, W600_ATTR_SCHEDULE, 0);
+                await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 0});
+                return {state: {system_mode: "off", schedule: "OFF", override_active: false}};
             }
 
             await writeW600LumiAttribute(entity, W600_ATTR_SYSTEM_MODE, 1);
@@ -4248,15 +4290,13 @@ function createW600Thermostat(): ModernExtend {
                 clearW600ManualCustomPresetSuppression(entity);
                 await writeW600LumiAttribute(entity, W600_ATTR_SCHEDULE, 1);
                 await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 0});
-                return {state: {system_mode: "auto", schedule: "ON", temperature_setpoint_hold: false}};
+                return {state: {system_mode: "auto", schedule: "ON", override_active: false}};
             }
 
-            if (getRequestedW600ScheduleEnabled(meta) !== false) {
-                await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 1});
-                return {state: {system_mode: "heat", temperature_setpoint_hold: true}};
-            }
-
-            return {state: {system_mode: "heat"}};
+            clearW600ManualCustomPresetSuppression(entity);
+            await writeW600LumiAttribute(entity, W600_ATTR_SCHEDULE, 0);
+            await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 0});
+            return {state: {system_mode: "heat", schedule: "OFF", override_active: false}};
         },
         convertGet: async (entity: Zh.Endpoint | Zh.Group) => {
             assertEndpoint(entity);
@@ -4271,19 +4311,25 @@ function createW600Thermostat(): ModernExtend {
         convertSet: async (entity: Zh.Endpoint | Zh.Group, key: string, value: unknown, meta: Tz.Meta) => {
             assertEndpoint(entity);
             const normalized = parseW600EnumName(value, {none: 0, ...W600_PRESET_ID_BY_NAME}, key) as W600PresetOrNone;
+            const scheduleEnabled = getRequestedW600ScheduleEnabled(meta) !== false;
 
             if (normalized === "none") {
                 startW600ManualCustomPresetSuppression(entity);
-                await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 1});
-                return {state: {preset: "none", temperature_setpoint_hold: true}};
+
+                if (scheduleEnabled) {
+                    await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 1});
+                    return {state: {system_mode: "auto", schedule: "ON", preset: "none", override_active: true}};
+                }
+
+                return {state: {preset: "none"}};
             }
 
             clearW600ManualCustomPresetSuppression(entity);
             await writeW600LumiAttribute(entity, W600_ATTR_PRESET, W600_PRESET_ID_BY_NAME[normalized]);
 
-            if (getRequestedW600ScheduleEnabled(meta) !== false) {
+            if (scheduleEnabled) {
                 await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 1});
-                return {state: {preset: normalized, temperature_setpoint_hold: true}};
+                return {state: {system_mode: "auto", schedule: "ON", preset: normalized, override_active: true}};
             }
 
             return {state: {preset: normalized}};
@@ -4325,7 +4371,7 @@ function createW600Thermostat(): ModernExtend {
     extend.toZigbee ??= [];
     extend.toZigbee.push(presetConverter);
 
-    extend.fromZigbee ??= [];
+    extend.fromZigbee = (extend.fromZigbee ?? []).map((converter) => (converter === fz.thermostat ? thermostatConverter : converter));
     extend.fromZigbee.push(
         {
             cluster: W600_THERMOSTAT_CLUSTER,
@@ -4333,10 +4379,7 @@ function createW600Thermostat(): ModernExtend {
             convert: (model, msg, publish, options, meta) => {
                 const device = meta.device ?? msg.device;
                 const result: KeyValue = {};
-                const hold =
-                    msg.data.tempSetpointHold !== undefined
-                        ? msg.data.tempSetpointHold === 1
-                        : parseW600TemperatureSetpointHold(meta.state?.temperature_setpoint_hold);
+                const hold = msg.data.tempSetpointHold !== undefined ? msg.data.tempSetpointHold === 1 : getW600OverrideActiveState(meta.state);
                 const heatingEnabled = parseW600HeatingEnabled(meta.state?.system_mode);
                 const scheduleEnabled = parseW600ScheduleEnabled(meta.state?.schedule);
 
@@ -4345,7 +4388,8 @@ function createW600Thermostat(): ModernExtend {
                 }
 
                 if (msg.data.tempSetpointHold !== undefined) {
-                    const systemMode = deriveW600SystemMode({heatingEnabled, scheduleEnabled, hold});
+                    result.override_active = hold;
+                    const systemMode = deriveW600SystemMode({heatingEnabled, scheduleEnabled});
 
                     if (systemMode) {
                         result.system_mode = systemMode;
@@ -4365,7 +4409,6 @@ function createW600Thermostat(): ModernExtend {
             convert: (model, msg, publish, options, meta) => {
                 const device = meta.device ?? msg.device;
                 const result: KeyValue = {};
-                const hold = parseW600TemperatureSetpointHold(meta.state?.temperature_setpoint_hold);
                 const heatingEnabled =
                     msg.data[W600_ATTR_SYSTEM_MODE] !== undefined
                         ? msg.data[W600_ATTR_SYSTEM_MODE] === 1
@@ -4374,10 +4417,33 @@ function createW600Thermostat(): ModernExtend {
                     msg.data[W600_ATTR_SCHEDULE] !== undefined ? msg.data[W600_ATTR_SCHEDULE] === 1 : parseW600ScheduleEnabled(meta.state?.schedule);
 
                 if (msg.data[W600_ATTR_SYSTEM_MODE] !== undefined || msg.data[W600_ATTR_SCHEDULE] !== undefined) {
-                    const systemMode = deriveW600SystemMode({heatingEnabled, scheduleEnabled, hold});
+                    const systemMode = deriveW600SystemMode({heatingEnabled, scheduleEnabled});
 
                     if (systemMode) {
                         result.system_mode = systemMode;
+                    }
+
+                    if (heatingEnabled === false) {
+                        clearW600ManualCustomPresetSuppression(device);
+                        result.schedule = "OFF";
+                        result.override_active = false;
+
+                        if (parseW600ScheduleEnabled(meta.state?.schedule) !== false) {
+                            writeW600LumiAttribute(msg.endpoint, W600_ATTR_SCHEDULE, 0).catch((error) =>
+                                logger.warning(
+                                    `Failed to disable W600 schedule after heating was turned off for '${device.ieeeAddr}': ${error}`,
+                                    W600_NS,
+                                ),
+                            );
+                            msg.endpoint
+                                .write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 0})
+                                .catch((error) =>
+                                    logger.warning(
+                                        `Failed to clear W600 manual override after heating was turned off for '${device.ieeeAddr}': ${error}`,
+                                        W600_NS,
+                                    ),
+                                );
+                        }
                     }
                 }
 
@@ -4401,6 +4467,15 @@ function createW600Thermostat(): ModernExtend {
     );
 
     extend.configure ??= [];
+    const configureOverrideActive = modernExtend.setupConfigureForReporting(W600_THERMOSTAT_CLUSTER, "tempSetpointHold", {
+        config: {min: "MIN", max: "1_HOUR", change: 0},
+        access: ea.STATE_GET,
+    });
+
+    if (configureOverrideActive) {
+        extend.configure.push(configureOverrideActive);
+    }
+
     extend.configure.push(async (device) => {
         const endpoint = device.getEndpoint(1);
         await safeW600Read(endpoint, W600_LUMI_CLUSTER, [W600_ATTR_SYSTEM_MODE, W600_ATTR_SCHEDULE, W600_ATTR_PRESET], {manufacturerCode});
@@ -4412,20 +4487,22 @@ function createW600Thermostat(): ModernExtend {
 
 function createW600Schedule(): ModernExtend {
     return {
-        exposes: [
-            e
-                .binary("schedule", ea.ALL, "ON", "OFF")
-                .withLabel("Weekly schedule")
-                .withDescription("Enable or disable using the stored weekly schedule")
-                .withCategory("config"),
-        ],
         fromZigbee: [
             {
                 cluster: W600_LUMI_CLUSTER,
                 type: ["attributeReport", "readResponse"],
-                convert: (model, msg) => {
+                convert: (model, msg, publish, options, meta) => {
                     if (msg.data[W600_ATTR_SCHEDULE] === undefined) {
                         return;
+                    }
+
+                    const heatingEnabled =
+                        msg.data[W600_ATTR_SYSTEM_MODE] !== undefined
+                            ? msg.data[W600_ATTR_SYSTEM_MODE] === 1
+                            : parseW600HeatingEnabled(meta.state?.system_mode);
+
+                    if (heatingEnabled === false) {
+                        return buildW600ScheduleState(false);
                     }
 
                     return buildW600ScheduleState(msg.data[W600_ATTR_SCHEDULE] === 1);
@@ -4447,7 +4524,6 @@ function createW600Schedule(): ModernExtend {
                         const systemMode = deriveW600SystemMode({
                             heatingEnabled,
                             scheduleEnabled: true,
-                            hold: parseW600TemperatureSetpointHold(meta.state?.temperature_setpoint_hold),
                         });
 
                         if (systemMode) {
@@ -4461,8 +4537,8 @@ function createW600Schedule(): ModernExtend {
                     await entity.write(W600_THERMOSTAT_CLUSTER, {tempSetpointHold: 0});
                     await writeW600LumiAttribute(entity, W600_ATTR_SCHEDULE, 0);
 
-                    const state: KeyValue = {...buildW600ScheduleState(false), temperature_setpoint_hold: false};
-                    const systemMode = deriveW600SystemMode({heatingEnabled, scheduleEnabled: false, hold: false});
+                    const state: KeyValue = {...buildW600ScheduleState(false), override_active: false};
+                    const systemMode = deriveW600SystemMode({heatingEnabled, scheduleEnabled: false});
 
                     if (systemMode) {
                         state.system_mode = systemMode;
